@@ -21,7 +21,7 @@ This repository contains code, data, and notebooks for a computer vision project
 ## Blog Article
 
 Read the full story and technical details in the blog post:  
-[Counting with Computers: Using YOLO to Spot Solar Panels in Satellite Imagery](https://www.blog.example.com)
+[Counting with Computers: Using YOLO to Spot Solar Panels in Satellite Imagery](https://medium.com/@jacobschwarz00/counting-with-computers-using-yolo-to-spot-solar-panels-in-satellite-imagery-d9ea874491a7)
 
 ## Usage
 
