@@ -1,0 +1,13 @@
+{
+  "categories": [
+    {
+      "id": 0,
+      "name": "Solar Panel"
+    }
+  ],
+  "info": {
+    "year": 2025,
+    "version": "1.0",
+    "contributor": "Label Studio"
+  }
+}

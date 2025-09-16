@@ -1,0 +1,6 @@
+path: .
+train: /content/drive/MyDrive/Upload to Google Colab/annotated-images/images/train
+val: /content/drive/MyDrive/Upload to Google Colab/annotated-images/images/val
+
+nc: 1  # update this to match the number of classes
+names: ['Solar Panel']  # replace with your actual class names

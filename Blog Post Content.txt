@@ -1,0 +1,161 @@
+---
+
+Counting with Computers: Using YOLO to Spot Solar Panels in Satellite Imagery
+The YOLO object detection model output - Solar Panels objects have been detectedHave you ever wondered how many houses in your neighbourhood have solar panels? Or perhaps you're a solar panel installation company looking to identify potential customers who already have systems that might need cleaning or maintenance? Using YOLO (You Only Look Once) object detection and satellite imagery, I built a model that can identify whether residential properties have solar panels installed with ~92% accuracy. The journey was far more complex than expected, with data collection proving to be the most challenging aspect of the entire project.
+The Python files (Jupyter and Google Colab Notebooks) that I built as part of this project are available on GitHub here.
+The Challenge: More Than Just Training a Model
+The concept seemed straightforward: train a computer vision model to detect solar panels in satellite imagery of residential properties. However, this project highlighted a fundamental challenge in machine learning - often the most difficult part isn't the model training, but obtaining quality training data.
+To build an effective solar panel detection system, I needed three key components:
+Address Data: A comprehensive list of residential properties
+Satellite Imagery: High-resolution aerial photos of each property
+Ground Truth Labels: Manual annotations identifying where solar panels appear in the images
+
+Part 1: Obtaining  Source Data
+Scraping Address Data
+The first hurdle was surprisingly basic: where do you get a list of residential addresses? While services like Australia Post provide address databases, they come with significant costs. Government sources like the Australian Bureau of Statistics require formal applications for access.
+My solution was to scrape address data from the SA GeoHub Services website (possibly unethical but free). As this was only a proof-of-concept project, I focused on a single suburb: Aberfoyle Park in southern Adelaide.
+The scraping process involved a two-step approach. First, I extracted basic address components (street numbers and names) for all properties in Aberfoyle Park.
+Example of the initial data collected - Noting that it misses the street type, for example "street" or "avenue"This initial scrape provided basic addresses but lacked important details like street types ("Street", "Avenue", "Court"). To enrich this data, I used another GeoHub tool - a geocoding server that takes partial addresses and returns complete, standardised addresses with longitude and latitude coordinates.
+Example of the geocoded data - Noting it now includes the street type, for example "court"Capturing Satellite Imagery
+With approximately 4,700 addresses in hand, the next challenge was obtaining satellite imagery for each property. Commercial satellite imagery is expensive, and free high-resolution options are limited in Australia compared to the US and Europe.
+Example of the satellite data collection process, two satellite images are captured, one with a bright blue mask and one as a clear image.My solution involved automating the Location SA Viewer tool using Selenium. The process involved programming Selenium to autonomously:
+Navigate to each address using the web-based mapping tool
+Enable the "Parcel Cadastre" data layer to highlight property boundaries
+Capture two screenshots: one clean satellite image and another with the property boundary highlighted in blue
+Use the highlighted boundary as a mask to crop only the relevant property area
+
+This automated process ran continuously for four days, ultimately capturing satellite imagery for all properties in Aberfoyle Park.
+Example of the first satellite screenshot - Clean image with no maskExample of the second satellite screenshot - Includes a bright blue mask based on the property boundaryPart 2: Image Processing and Dataset Preparation
+Cropping to Property Boundaries
+With paired satellite images (clean and boundary-highlighted), I used OpenCV to isolate each property from its surroundings. The process involved detecting the blue boundary mask and cropping the clean satellite image to show only the area within those boundaries.
+Example of the satellite image cropped to the property-only using the bright-blue maskdef process_image_pair(base_path: Path, boxed_path: Path):
+    # Load both images
+    base_img = cv2.imread(str(base_path), 1)
+    boxed_img = cv2.imread(str(boxed_path), 1)
+    
+    # Create mask where boxed image is blue
+    mask = cv2.inRange(boxed_img, lower_blue, upper_blue)
+    
+    # Find the largest contour (property boundary)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contour = max(contours, key=cv2.contourArea)
+    
+    # Create cropped result showing only the property
+    result_cropped = base_img[y1:y2, x1:x2]
+The result was approximately 4,700 cropped satellite images, each showing a single residential property in Aberfoyle Park.
+Manual Annotation with Label Studio
+The most time-consuming part of the project was manually labelling the training data. Using Label Studio, an open-source annotation tool, I spent roughly six hours drawing bounding boxes around solar panels in 972 images.
+Using Label Studio to label the cropped satellite imageryThis manual process revealed the complexity of visual identification. Clear-cut cases were straightforward - obvious rectangular arrays of solar panels were easy to spot. However, edge cases proved challenging:
+Distinguishing solar panels from skylights
+Identifying panels partially obscured by shadows or trees
+Handling different image resolutions due to inconsistent loading times
+Dealing with hot water systems that resembled solar installations
+
+Interestingly, about 5% of the "addresses" turned out to be vacant lots or reserve areas with no buildings - I made the decision to leave these in the training data as I knew there would be other examples within the validation dataset too.
+Part 3: Training with YOLO
+Why YOLO?
+YOLO (You Only Look Once) is a powerful, real-time object detection model known for its speed and efficiency. Unlike traditional approaches that scan images multiple times, YOLO processes the entire image in a single pass, making it ideal for practical applications.
+I used YOLO11, from Ultralytics, which provides excellent pre-trained models that can be fine-tuned for specific use cases like solar panel detection.
+The training process became remarkably straightforward thanks to modern tools. Using Google Colab's free GPU access (Tesla T4), I was able to train multiple model variants:
+from ultralytics import YOLO
+
+# Load pre-trained model
+model = YOLO('yolo11m.pt')  # Medium-sized model
+# Train on solar panel dataset
+results = model.train(
+    data='/path/to/data.yaml', 
+    epochs=150, 
+    patience=15, 
+    lr0=0.0005
+)
+Results of training the model (by epoch)Comparing Model Sizes
+I experimented with different YOLO model sizes to find the optimal balance between accuracy and computational requirements:
+Nano Model: Fastest but least accurate (mAP50: 0.684)
+Small Model: Good balance for mobile applications (mAP50: 0.671)
+Medium Model: Best performance for this use case (mAP50: 0.701)
+
+The medium model achieved the highest mean Average Precision at 50% IoU overlap (mAP50), meaning it correctly identified solar panels with at least 50% overlap with the ground truth annotations 70.1% of the time.
+Training completed in approximately 40 minutes for 150 epochs, demonstrating how quick it is to train models when you can use someone else's GPU (Thanks Google!).
+Part 4: From Detection to Classification
+The Practical Challenge
+While the object detection results were promising, I noticed the model had a tendency to identify some but not all solar panels in images with multiple arrays. For practical applications - like a solar company identifying potential customers - the key question isn't "where exactly are the solar panels?" but rather "does this property have solar panels?"
+Detection results which show only partial detection, where the model identified some but not all solar panel arrays on a roofThis realisation led me to reframe the problem as a classification task: does this satellite image contain solar panels or not?
+Classification Testing Approach
+Rather than retraining with a different model architecture, I devised a clever workaround using the existing object detection model. I manually classified 1,980 property images as either "has solar panels" (1) or "no solar panels" (0), then tested whether the YOLO model detected any objects above a confidence threshold of 0.25.
+# Load model
+model = YOLO('PATH TO MODEL', task='detect')
+
+# Loop through test images
+for _, row in df.iterrows():
+    img_path = Path(image_dir) / row['filename']
+    
+    # Run YOLO detection
+    pred = model(img_path, conf=0.25)[0]
+    detected = len(pred.boxes) > 0
+    
+    results.append({
+        'filename': row['filename'],
+        'actual': row['has_solar'],
+        'predicted': int(detected)
+    })
+
+# Create dataframe
+results_df = pd.DataFrame(results)
+y_true = results_df['actual']
+y_pred = results_df['predicted']
+Results: 92% Classification Accuracy
+The classification evaluation revealed impressive results:
+from sklearn.metrics import classification_report, confusion_matrix
+
+print(classification_report(
+   y_true,
+   y_pred,
+   target_names=["No Solar", "Has Solar"])
+)
+
+              precision    recall  f1-score   support
+    No Solar       0.88      0.97      0.92       988
+   Has Solar       0.97      0.86      0.91       992
+
+accuracy                               0.92      1980
+The model achieved 92% overall accuracy, with particularly strong performance in avoiding false positives (97% precision for properties with solar panels). This level of accuracy would be quite suitable for practical applications like targeted marketing campaigns for solar services.
+Model Performance Examples
+The model performed exceptionally well under ideal conditions:
+Excellent Performance:
+Clear, top-down views of properties
+Minimal tree coverage or shadows
+High contrast between solar panels and roof materials
+Higher resolution satellite imagery
+
+Challenging Scenarios:
+Properties with significant tree coverage
+Dark roofs where solar panels blended in
+Lower resolution images due to inconsistent loading
+Skylights and hot water systems resembling solar installations
+
+Sometimes the model just missed/did not detect the solar panelsPractical Applications and Business Value
+For businesses in the solar industry, this 92% accuracy rate could provide significant value:
+Solar Installation Companies: Identify properties without existing solar installations for targeted marketing campaigns.
+Solar Maintenance Services: Locate properties with existing solar systems that might require cleaning, maintenance, or upgrades.
+Market Research: Analyse solar adoption rates across different neighbourhoods or demographic areas.
+Urban Planning: Assist councils and planners in understanding renewable energy adoption patterns.
+Future Enhancements and Extensions
+This project opens several exciting possibilities for expansion:
+Enhanced Training Data: The model's performance could be significantly improved by expanding the training dataset beyond a single suburb and including varied property types, roof styles, and geographic regions.
+Multi-Class Detection: Beyond solar panels, satellite imagery contains wealth of information about properties:
+Swimming pools for pool maintenance companies
+Air conditioning units for HVAC services
+Roof materials (tile vs. metal) for roofing contractors
+Tree coverage for landscaping services
+Driveways and parking for paving companies
+
+True Classification Models: Rather than using object detection for classification, training purpose-built image classification models might yield better results for the binary "has solar/no solar" question.
+Temporal Analysis: Using historical satellite imagery to track solar adoption trends over time, providing valuable market intelligence for the renewable energy sector.
+Conclusion
+What began as a simple curiosity about computer vision capabilities evolved into a comprehensive exploration of practical machine learning applications. The 92% classification accuracy demonstrates that with modern tools and sufficient training data, it's possible to build genuinely useful computer vision systems.
+The project highlights both the potential and challenges of applied machine learning. While the technical aspects of training YOLO models have become remarkably accessible, the fundamental challenges of data collection and annotation remain significant.
+For businesses in the solar industry or anyone interested in geospatial analysis, this approach provides a cost-effective method for extracting valuable insights from readily available satellite imagery. The techniques demonstrated here could easily extend to other property features, opening possibilities for numerous industry applications.
+
+---
+
+This article is part of my series called "12 Months of Technology" - In which for each month of 2025 I learn about a new piece of software/hardware, build a small project and share what I did with others.
